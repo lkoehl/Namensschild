@@ -160,45 +160,110 @@ public struct TextRasterizer: Sendable {
     }
 
     /// Rendert `text` und liefert die Bitmap in Geräteanordnung.
+    ///
+    /// `:herz:` und die übrigen Kürzel aus `PixelIcons` werden dabei durch das
+    /// jeweilige Symbol ersetzt; `::` steht für einen einzelnen Doppelpunkt.
     public func rasterize(_ text: String) -> ColumnBitmap {
-        let trimmed = text
-        guard !trimmed.isEmpty else { return ColumnBitmap(rows: rows, byteColumns: 0) }
+        guard !text.isEmpty, rows > 0 else { return ColumnBitmap(rows: rows, byteColumns: 0) }
 
-        let font = makeFont()
-        let line = self.line(for: trimmed, font: font)
+        var pixels = [[Bool]](repeating: [], count: rows)
+        var isFirst = true
+        for segment in Self.split(text) {
+            let part: [[Bool]]
+            switch segment {
+            case let .text(value):
+                part = pixelGrid(for: value, leading: isFirst ? leadingPadding : 0)
+            case let .icon(icon):
+                part = icon.pixels(rows: rows)
+            }
+            guard part.first?.isEmpty == false else { continue }
+            // Symbol und Text brauchen etwas Luft zueinander, sonst kleben sie zusammen.
+            let spacer = isFirst ? 0 : (segment.isIcon ? 1 : 1)
+            for y in 0..<rows {
+                pixels[y].append(contentsOf: [Bool](repeating: false, count: spacer))
+                pixels[y].append(contentsOf: part[y])
+            }
+            isFirst = false
+        }
+        guard pixels.first?.isEmpty == false else { return ColumnBitmap(rows: rows, byteColumns: 0) }
+        return ColumnBitmap.from(pixels: trimTrailingBlankColumns(pixels), rows: rows)
+    }
 
+    // MARK: - Zerlegung in Text und Symbole
+
+    enum Segment {
+        case text(String)
+        case icon(PixelIcon)
+
+        var isIcon: Bool { if case .icon = self { return true }; return false }
+    }
+
+    /// Trennt `Hallo :herz: Welt` in Text- und Symbolabschnitte. Ein unbekanntes
+    /// Kürzel bleibt stehen, wie es geschrieben wurde — dann sieht man den Tippfehler
+    /// auf dem Schild, statt dass der Text stillschweigend verschwindet.
+    static func split(_ text: String) -> [Segment] {
+        var segments: [Segment] = []
+        var literal = ""
+        var rest = Substring(text)
+
+        func flush() {
+            if !literal.isEmpty { segments.append(.text(literal)); literal = "" }
+        }
+
+        while let colon = rest.firstIndex(of: ":") {
+            literal += rest[rest.startIndex..<colon]
+            let afterColon = rest.index(after: colon)
+            if afterColon < rest.endIndex, rest[afterColon] == ":" {
+                literal += ":"                        // "::" ist ein echter Doppelpunkt
+                rest = rest[rest.index(after: afterColon)...]
+                continue
+            }
+            guard let closing = rest[afterColon...].firstIndex(of: ":") else {
+                literal += ":"
+                rest = rest[afterColon...]
+                continue
+            }
+            let name = String(rest[afterColon..<closing])
+            if let icon = PixelIcons[name] {
+                flush()
+                segments.append(.icon(icon))
+            } else {
+                literal += ":" + name + ":"
+            }
+            rest = rest[rest.index(after: closing)...]
+        }
+        literal += rest
+        flush()
+        return segments
+    }
+
+    /// Rastert reinen Text — ohne Symbole, ohne Zuschnitt.
+    private func pixelGrid(for text: String, leading: Int) -> [[Bool]] {
+        let empty = [[Bool]](repeating: [], count: rows)
+        guard !text.isEmpty else { return empty }
+
+        let line = self.line(for: text, font: makeFont())
         let advance = CTLineGetTypographicBounds(line, nil, nil, nil)
-
-        let textWidth = max(1, Int(ceil(advance)))
-        let width = textWidth + leadingPadding + 1
-        guard width > 0, rows > 0 else { return ColumnBitmap(rows: rows, byteColumns: 0) }
-
+        let width = max(1, Int(ceil(advance))) + leading + 1
         let bytesPerRow = width
         var buffer = [UInt8](repeating: 0, count: bytesPerRow * rows)
 
         let drawn: Bool = buffer.withUnsafeMutableBytes { raw -> Bool in
             guard let base = raw.baseAddress,
                   let context = CGContext(
-                      data: base,
-                      width: width,
-                      height: rows,
-                      bitsPerComponent: 8,
-                      bytesPerRow: bytesPerRow,
-                      space: CGColorSpaceCreateDeviceGray(),
+                      data: base, width: width, height: rows, bitsPerComponent: 8,
+                      bytesPerRow: bytesPerRow, space: CGColorSpaceCreateDeviceGray(),
                       bitmapInfo: CGImageAlphaInfo.none.rawValue
                   )
             else { return false }
-
             configure(context)
-
             context.setFillColor(CGColor(gray: 0, alpha: 1))
             context.fill(CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(rows)))
-
-            context.textPosition = CGPoint(x: CGFloat(leadingPadding), y: baselineY)
+            context.textPosition = CGPoint(x: CGFloat(leading), y: baselineY)
             CTLineDraw(line, context)
             return true
         }
-        guard drawn else { return ColumnBitmap(rows: rows, byteColumns: 0) }
+        guard drawn else { return empty }
 
         // Der Puffer einer CGBitmapContext liegt zeilenweise von oben nach unten,
         // Zeile 0 ist also die oberste LED-Reihe.
@@ -210,8 +275,7 @@ public struct TextRasterizer: Sendable {
                 pixels[y][x] = buffer[rowStart + x] > cutoff
             }
         }
-
-        return ColumnBitmap.from(pixels: trimTrailingBlankColumns(pixels), rows: rows)
+        return pixels
     }
 
     /// Rechts anfallende Leerspalten kosten Speicher auf dem Schild und

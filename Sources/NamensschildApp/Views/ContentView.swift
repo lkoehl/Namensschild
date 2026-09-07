@@ -4,6 +4,9 @@ import SwiftUI
 struct ContentView: View {
     @Bindable var model: AppModel
 
+    @State private var showingIcons = false
+    @State private var showingFonts = false
+
     private var selected: BadgeMessage { model.document.messages[model.selectedSlot] }
 
     var body: some View {
@@ -15,8 +18,15 @@ struct ContentView: View {
             StatusBarView(model: model)
         }
         .padding(16)
-        .frame(minWidth: 820, minHeight: 620)
+        .frame(minWidth: 960, minHeight: 640)
         .onChange(of: model.document) { model.documentDidChange() }
+        .sheet(isPresented: $showingFonts) {
+            FontPickerView(
+                rows: model.document.rowCount.rawValue,
+                size: model.document.fontSize,
+                selection: $model.document.fontName
+            )
+        }
     }
 
     private var preview: some View {
@@ -57,12 +67,16 @@ struct ContentView: View {
 
     private var appearance: some View {
         HStack(alignment: .firstTextBaseline, spacing: 18) {
-            Picker("Schrift", selection: $model.document.fontName) {
-                ForEach(TextRasterizer.recommendedFonts, id: \.self) { name in
-                    Text(name).tag(name)
+            Button {
+                showingFonts = true
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "textformat")
+                    Text(model.document.fontName).lineLimit(1)
                 }
+                .frame(width: 200, alignment: .leading)
             }
-            .frame(width: 240)
+            .help("Alle installierten Schriften — jeweils auf dem echten Punktraster vorgeschaut")
 
             HStack(spacing: 4) {
                 Text("Größe")
@@ -88,6 +102,16 @@ struct ContentView: View {
             }
             .frame(width: 150)
             .help("11 Zeilen: S1144/B1144/GD1144 · 12 Zeilen: S1248/B1248/GD1248.\nIm Zweifel „Testmuster“ senden und die Reihen abzählen.")
+
+            Button {
+                showingIcons = true
+            } label: {
+                Label("Symbol", systemImage: "heart.text.square")
+            }
+            .popover(isPresented: $showingIcons, arrowEdge: .bottom) {
+                IconPaletteView { model.insertIcon($0) }
+            }
+            .help("Ein Pixelsymbol an die ausgewählte Nachricht anhängen")
 
             Spacer()
 

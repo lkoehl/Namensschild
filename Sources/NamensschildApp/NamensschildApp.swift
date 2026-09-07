@@ -26,6 +26,14 @@ struct NamensschildApp: App {
                 Button("Sichern unter …") { model.saveCopy() }
                     .keyboardShortcut("s", modifiers: .command)
             }
+            CommandGroup(replacing: .undoRedo) {
+                Button("Widerrufen") { model.undo() }
+                    .keyboardShortcut("z", modifiers: .command)
+                    .disabled(!model.canUndo)
+                Button("Wiederholen") { model.redo() }
+                    .keyboardShortcut("z", modifiers: [.command, .shift])
+                    .disabled(!model.canRedo)
+            }
             CommandMenu("Schild") {
                 Button("Senden") { model.send() }
                     .keyboardShortcut(.return, modifiers: .command)

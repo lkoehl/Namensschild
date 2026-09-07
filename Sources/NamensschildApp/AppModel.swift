@@ -66,6 +66,7 @@ final class AppModel {
         if let stored = DocumentStore.load() {
             document = stored
         }
+        lastCommitted = document
         recompute()
         monitor.onChange = { [weak self] devices in
             self?.connectedDevices = devices
@@ -78,8 +79,97 @@ final class AppModel {
 
     /// Wird von der Oberfläche aufgerufen, sobald sich am Dokument etwas ändert.
     func documentDidChange() {
+        recordForUndo()
         recompute()
         scheduleSave()
+    }
+
+    // MARK: - Widerrufen
+
+    private var undoStack: [BadgeDocument] = []
+    private var redoStack: [BadgeDocument] = []
+    private var lastCommitted = BadgeDocument()
+    private var lastSnapshot = Date.distantPast
+    /// Nach einem Widerruf darf der dadurch ausgelöste Änderungslauf nicht
+    /// gleich wieder auf den Stapel wandern.
+    private var restoredState: BadgeDocument?
+
+    private(set) var canUndo = false
+    private(set) var canRedo = false
+
+    private func recordForUndo() {
+        if let restored = restoredState, restored == document {
+            restoredState = nil
+            lastCommitted = document
+            return
+        }
+        // Tippen erzeugt pro Zeichen eine Änderung. Ein Widerruf soll aber ein
+        // Wort zurücknehmen, nicht einen Buchstaben — deshalb werden schnelle
+        // Folgeänderungen zu einem Schritt zusammengefasst.
+        let now = Date()
+        if now.timeIntervalSince(lastSnapshot) > 1.2 {
+            undoStack.append(lastCommitted)
+            if undoStack.count > 60 { undoStack.removeFirst() }
+            redoStack.removeAll()
+            lastSnapshot = now
+        }
+        lastCommitted = document
+        refreshUndoFlags()
+    }
+
+    private func refreshUndoFlags() {
+        canUndo = !undoStack.isEmpty
+        canRedo = !redoStack.isEmpty
+    }
+
+    func undo() {
+        guard let previous = undoStack.popLast() else { return }
+        redoStack.append(document)
+        restore(previous)
+    }
+
+    func redo() {
+        guard let next = redoStack.popLast() else { return }
+        undoStack.append(document)
+        restore(next)
+    }
+
+    private func restore(_ state: BadgeDocument) {
+        restoredState = state
+        lastSnapshot = .distantPast
+        document = state
+        selectedSlot = min(selectedSlot, state.messages.count - 1)
+        recompute()
+        scheduleSave()
+        refreshUndoFlags()
+    }
+
+    // MARK: - Nachrichten umsortieren und ergänzen
+
+    /// Verschiebt eine Nachricht auf einen anderen Platz. Die Plätze entsprechen
+    /// den Tasten M1 bis M8 am Schild, deshalb werden die Nummern danach neu vergeben.
+    func moveMessage(from source: Int, to destination: Int) {
+        let slots = document.messages.indices
+        guard slots.contains(source), destination >= 0, destination <= document.messages.count,
+              source != destination else { return }
+        var messages = document.messages
+        let moved = messages.remove(at: source)
+        let target = destination > source ? destination - 1 : destination
+        messages.insert(moved, at: min(target, messages.count))
+        for index in messages.indices { messages[index].id = index }
+        document.messages = messages
+        selectedSlot = min(target, messages.count - 1)
+        documentDidChange()
+    }
+
+    /// Hängt das Kürzel eines Symbols an die ausgewählte Nachricht.
+    func insertIcon(_ icon: PixelIcon) {
+        guard document.messages.indices.contains(selectedSlot) else { return }
+        var text = document.messages[selectedSlot].text
+        if !text.isEmpty, !text.hasSuffix(" ") { text += " " }
+        document.messages[selectedSlot].text = text + icon.token
+        document.messages[selectedSlot].isEnabled = true
+        documentDidChange()
     }
 
     private func recompute() {
@@ -152,8 +242,14 @@ final class AppModel {
     // MARK: - Dokument
 
     func reset() {
+        undoStack.append(document)
+        redoStack.removeAll()
         document = BadgeDocument()
         selectedSlot = 0
+        lastCommitted = document
+        recompute()
+        scheduleSave()
+        refreshUndoFlags()
     }
 
     private func scheduleSave() {

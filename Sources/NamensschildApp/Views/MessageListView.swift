@@ -1,13 +1,18 @@
 import BadgeKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct MessageListView: View {
     @Bindable var model: AppModel
 
+    @State private var dragging: Int?
+    @State private var dropTarget: Int?
+
     private let numberWidth: CGFloat = 26
-    private let effectWidth: CGFloat = 132
-    private let speedWidth: CGFloat = 56
-    private let toggleWidth: CGFloat = 58
+    private let previewWidth: CGFloat = 124
+    private let effectWidth: CGFloat = 128
+    private let speedWidth: CGFloat = 54
+    private let toggleWidth: CGFloat = 56
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,6 +34,7 @@ struct MessageListView: View {
             Text("").frame(width: 18)
             Text("Nr").frame(width: numberWidth, alignment: .leading)
             Text("Text").frame(maxWidth: .infinity, alignment: .leading)
+            Text("Vorschau").frame(width: previewWidth, alignment: .leading)
             Text("Effekt").frame(width: effectWidth, alignment: .leading)
             Text("Tempo").frame(width: speedWidth, alignment: .leading)
             Text("Blinken").frame(width: toggleWidth, alignment: .center)
@@ -43,7 +49,8 @@ struct MessageListView: View {
     private func row(_ index: Int) -> some View {
         let message = $model.document.messages[index]
         let isSelected = model.selectedSlot == index
-        let columns = model.bitmap(for: index).byteColumns
+        let bitmap = model.bitmap(for: index)
+        let hasContent = model.document.messages[index].carriesContent
 
         return HStack(spacing: 8) {
             Toggle("", isOn: message.isEnabled)
@@ -52,14 +59,33 @@ struct MessageListView: View {
                 .frame(width: 18)
                 .help("Nachricht \(index + 1) auf das Schild übertragen")
 
+            // Griff zum Umsortieren. Bewusst nur die Nummer und nicht die ganze
+            // Zeile — sonst ließe sich im Textfeld nichts mehr markieren.
             Text("M\(index + 1)")
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(isSelected ? Color.accentColor : .secondary)
                 .frame(width: numberWidth, alignment: .leading)
+                .contentShape(Rectangle())
+                .onDrag {
+                    dragging = index
+                    return NSItemProvider(object: String(index) as NSString)
+                }
+                .help("Ziehen, um die Nachricht auf einen anderen Platz zu legen")
 
             TextField("Text für Platz \(index + 1)", text: message.text)
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: .infinity)
+                .onTapGesture { model.selectedSlot = index }
+
+            Group {
+                if hasContent {
+                    LEDStripView(bitmap: bitmap, visibleColumns: 56, dotSize: 2.1)
+                } else {
+                    Text("—").foregroundStyle(.tertiary)
+                }
+            }
+            .frame(width: previewWidth, alignment: .leading)
+            .opacity(message.wrappedValue.isEnabled ? 1 : 0.45)
 
             Picker("", selection: message.effect) {
                 ForEach(BadgeEffect.allCases, id: \.self) { effect in
@@ -85,9 +111,52 @@ struct MessageListView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background(isSelected ? Color.accentColor.opacity(0.10) : .clear)
+        .background(background(isSelected: isSelected, index: index))
+        .overlay(alignment: .top) {
+            if dropTarget == index, dragging != index {
+                Rectangle().fill(Color.accentColor).frame(height: 2)
+            }
+        }
         .contentShape(Rectangle())
         .onTapGesture { model.selectedSlot = index }
-        .help(columns > 0 ? "\(columns) Byte-Spalten" : "leer")
+        // Die Plätze entsprechen den Tasten M1 bis M8 am Schild — Umsortieren
+        // heißt also, den Inhalt auf eine andere Taste zu legen.
+        .onDrop(of: [UTType.text], delegate: RowDropDelegate(
+            index: index,
+            dragging: $dragging,
+            dropTarget: $dropTarget,
+            move: { from, to in model.moveMessage(from: from, to: to) }
+        ))
+        .help(bitmap.byteColumns > 0 ? "\(bitmap.byteColumns) Byte-Spalten" : "leer")
+    }
+
+    private func background(isSelected: Bool, index: Int) -> some View {
+        Group {
+            if dragging == index {
+                Color.accentColor.opacity(0.05)
+            } else if isSelected {
+                Color.accentColor.opacity(0.10)
+            } else {
+                Color.clear
+            }
+        }
+    }
+}
+
+private struct RowDropDelegate: DropDelegate {
+    let index: Int
+    @Binding var dragging: Int?
+    @Binding var dropTarget: Int?
+    let move: (Int, Int) -> Void
+
+    func dropEntered(info: DropInfo) { dropTarget = index }
+    func dropExited(info: DropInfo) { if dropTarget == index { dropTarget = nil } }
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        defer { dragging = nil; dropTarget = nil }
+        guard let source = dragging, source != index else { return false }
+        move(source, source < index ? index + 1 : index)
+        return true
     }
 }
