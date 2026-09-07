@@ -56,6 +56,11 @@ xcrun stapler staple build/Namensschild-1.0.dmg
 
 Am Schild schaltet die Nachrichtentaste zwischen M1 … M8 um.
 
+Jede Zeile zeigt eine Mini-Vorschau ihres Inhalts. Nachrichten lassen sich an der
+Nummer auf einen anderen Platz ziehen, ⌘Z widerruft. Der Schriftwähler listet alle
+installierten Schriften und zeigt jede auf dem echten Punktraster — bei elf Zeilen
+sagt der Name einer Schrift nichts darüber, ob sie taugt.
+
 ### Wie viele Zeilen hat mein Schild?
 
 Die 1144er-Baureihe hat 11 LED-Zeilen, die 1248er hat 12. Der USB-Deskriptor verrät das
@@ -74,6 +79,27 @@ Reihen abzählen und unter *Modell* einstellen.
 
 Die Vorschau animiert die vier Laufrichtungen und den stehenden Text originalgetreu.
 Die vier Firmware-Effekte erzeugt das Schild selbst — die Vorschau zeigt dort nur den Inhalt.
+
+### Symbole im Text
+
+Zwölf Pixelsymbole lassen sich mitten in den Text setzen — als Kürzel geschrieben,
+auf dem Schild als Grafik:
+
+```
+Lukas :herz: Kaffee
+:achtung: Raum 12 gesperrt
+```
+
+`:herz:` · `:stern:` · `:haken:` · `:kreuz:` · `:rechts:` · `:links:` · `:wlan:` ·
+`:kaffee:` · `:achtung:` · `:smiley:` · `:note:` · `:blitz:`
+
+Der Knopf **Symbol** zeigt sie alle mit Vorschau. Für einen echten Doppelpunkt
+`::` schreiben (`12::30` wird zu `12:30`). Ein unbekanntes Kürzel bleibt sichtbar
+stehen — so sieht man den Tippfehler auf dem Schild, statt dass Text verschwindet.
+
+Die Symbole sind Punkt für Punkt von Hand gezeichnet. Auf neun Zeilen entscheidet
+jedes einzelne Pixel über die Erkennbarkeit; eine skalierte Vektorgrafik oder ein
+Emoji aus einer Systemschrift wird dort unweigerlich zu Matsch.
 
 ### Schriftgröße und Umlaute
 
