@@ -1,0 +1,33 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tests
+        run: swift test
+
+      - name: Abbild bauen
+        run: ./Tools/make-dmg.sh
+
+      - name: Veröffentlichen
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/*.dmg
+          generate_release_notes: true
+          body: |
+            Fertig gebautes Abbild unten anhängend.
+
+            Beim ersten Start meldet macOS, es könne die App nicht auf Schadsoftware
+            prüfen — die App ist nicht bei Apple notarisiert. Abhilfe:
+            Systemeinstellungen → Datenschutz & Sicherheit → ganz nach unten →
+            „Trotzdem öffnen". Nur einmal nötig.

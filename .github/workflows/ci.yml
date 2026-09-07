@@ -1,0 +1,33 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Swift-Version anzeigen
+        run: swift --version
+
+      - name: Tests
+        # Die 36 Tests laufen ohne angeschlossenes Schild — Protokoll,
+        # Bitmap-Anordnung und Textrasterung sind vollständig ohne Gerät prüfbar.
+        run: swift test
+
+      - name: App bauen (Universal-Binary)
+        run: ./Tools/make-app.sh
+
+      - name: Weitergabe-Abbild bauen
+        run: ./Tools/make-dmg.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dmg
+          path: build/*.dmg
+          if-no-files-found: error
